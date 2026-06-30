@@ -59,7 +59,10 @@ export default function EditProjectPage() {
       const validation = updateProjectSchema.safeParse(formData);
       if (!validation.success) {
         const firstError = Object.values(validation.error.format())[1];
-        setError(firstError?._errors?.[0] || 'Validation failed');
+        const errorMessage = (firstError && typeof firstError !== 'string' && '_errors' in firstError)
+          ? firstError._errors?.[0]
+          : 'Validation failed';
+        setError(errorMessage || 'Validation failed');
         setSaving(false);
         return;
       }
