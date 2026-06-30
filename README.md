@@ -325,3 +325,4 @@ For issues or questions, please open a GitHub issue.
 ---
 
 **Built with ❤️ using Next.js, Supabase, and N8N**
+# Trigger deployment - Tue Jun 30 20:32:51 UTC 2026
