@@ -4,7 +4,76 @@ Complete guide for deploying the N8N SEO Dashboard to production.
 
 ---
 
-## 🚀 Quick Deploy to Vercel
+## 🎯 Deployment Options
+
+Choose your platform:
+1. **Render** (Recommended) - Free tier, automatic deploys
+2. **Vercel** - Fast, optimized for Next.js
+3. **Self-hosted** - Full control
+
+---
+
+## 🚀 Deploy to Render (Recommended)
+
+### 1. Quick Deploy
+
+**Click to Deploy** → [Deploy to Render](https://render.com)
+
+Or manual setup:
+
+#### Step 1: Connect Repository
+1. Go to [Render Dashboard](https://dashboard.render.com/)
+2. Click **"New +"** → **"Web Service"**
+3. Connect your GitHub account
+4. Select this repository: `n8n-seo-dashboard`
+
+#### Step 2: Configure Service
+- **Name**: `n8n-dashboard` (or your choice)
+- **Region**: Oregon (or closest region)
+- **Branch**: `master`
+- **Root Directory**: leave empty
+- **Environment**: `Node`
+- **Build Command**: `npm install && npm run build`
+- **Start Command**: `npm start`
+- **Instance Type**: `Free`
+
+#### Step 3: Environment Variables
+
+Add these in Render Dashboard → Environment:
+
+```env
+NODE_ENV=production
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+N8N_WEBHOOK_URL=https://your-n8n.com/webhook/audit
+N8N_WEBHOOK_SECRET=your-secret-key
+```
+
+#### Step 4: Deploy
+1. Click **"Create Web Service"**
+2. Wait 3-5 minutes for build
+3. Your app will be live at: `https://your-service.onrender.com`
+
+### 2. Automatic Deploys
+
+Render auto-deploys on every push to `master`:
+```bash
+git add .
+git commit -m "Update feature"
+git push origin master
+# Render detects push and rebuilds automatically
+```
+
+### 3. Custom Domain (Optional)
+
+In Render Dashboard → Settings → Custom Domains:
+1. Add your domain: `dashboard.yourdomain.com`
+2. Update DNS records (Render provides instructions)
+3. SSL certificate auto-provisioned
+
+---
+
+## ⚡ Quick Deploy to Vercel (Alternative)
 
 ### 1. Prepare Repository
 
