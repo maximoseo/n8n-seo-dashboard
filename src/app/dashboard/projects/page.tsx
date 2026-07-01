@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { Project } from '@/lib/validations/project.schema';
+import { projectsApi, type Project } from '@/lib/api/projects';
 
 export default function ProjectsListPage() {
   const router = useRouter();
@@ -10,7 +10,7 @@ export default function ProjectsListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'paused' | 'archived'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
 
   // Fetch projects on mount
   useEffect(() => {
@@ -20,46 +20,37 @@ export default function ProjectsListPage() {
   const fetchProjects = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/projects');
+      setError(null);
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch projects');
-      }
+      const filter = filterStatus !== 'all' ? { status: filterStatus } : undefined;
+      const data = await projectsApi.list(filter);
 
-      const data = await response.json();
-      setProjects(data.projects || []);
+      setProjects(data.projects ?? []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong');
+      setProjects([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Filter projects
+  // Filter projects (search only - status filtered in API call)
   const filteredProjects = projects.filter((project) => {
-    const matchesSearch = project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         project.url.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = filterStatus === 'all' || project.status === filterStatus;
-    return matchesSearch && matchesStatus;
+    if (!searchQuery) return true;
+    return project.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+           project.url.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
-  // Delete project
+  // Delete project with type-safe API
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this project?')) return;
 
     try {
-      const response = await fetch(`/api/projects/${id}`, {
-        method: 'DELETE',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete project');
-      }
-
-      // Remove from local state
+      await projectsApi.delete(id);
       setProjects(projects.filter(p => p.id !== id));
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete project');
+      const message = err instanceof Error ? err.message : 'Failed to delete project';
+      alert(message);
     }
   };
 
@@ -67,18 +58,9 @@ export default function ProjectsListPage() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active': return 'bg-green-100 text-green-800';
-      case 'paused': return 'bg-yellow-100 text-yellow-800';
-      case 'archived': return 'bg-gray-100 text-gray-800';
+      case 'inactive': return 'bg-gray-100 text-gray-800';
       default: return 'bg-gray-100 text-gray-800';
     }
-  };
-
-  // Get health score color
-  const getHealthColor = (score: number) => {
-    if (score >= 80) return 'text-green-600';
-    if (score >= 60) return 'text-yellow-600';
-    if (score >= 40) return 'text-orange-600';
-    return 'text-red-600';
   };
 
   return (
@@ -201,31 +183,15 @@ export default function ProjectsListPage() {
                   </span>
                 </div>
 
-                {/* Stats */}
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Health Score</p>
-                    <p className={`text-2xl font-bold ${getHealthColor(project.health_score)}`}>
-                      {project.health_score}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Last Audit</p>
-                    <p className="text-sm text-gray-700">
-                      {project.last_audit_at
-                        ? new Date(project.last_audit_at).toLocaleDateString()
-                        : 'Never'
-                      }
-                    </p>
-                  </div>
-                </div>
-
-                {/* Description */}
-                {project.description && (
-                  <p className="text-sm text-gray-600 mb-4 line-clamp-2">
-                    {project.description}
+                {/* Project Info */}
+                <div className="mb-4">
+                  <p className="text-sm text-gray-600">
+                    {project.url}
                   </p>
-                )}
+                  <p className="text-xs text-gray-400 mt-1">
+                    Created {new Date(project.created_at).toLocaleDateString()}
+                  </p>
+                </div>
 
                 {/* Actions */}
                 <div className="flex gap-2 pt-4 border-t border-gray-100">
