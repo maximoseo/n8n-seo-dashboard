@@ -1,163 +1,65 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
+import { requireAuth } from '@/lib/auth-middleware';
+import { handleAPIError } from '@/lib/api-error';
+import { createAuditsService } from '@/services/audits.service';
 
 /**
  * GET /api/audits
- * List all audit jobs (optionally filtered by project)
+ * ponytail: Service layer pattern with auth middleware
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    await requireAuth();
 
-    // Check authentication
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const { searchParams } = request.nextUrl;
+    const site_id = searchParams.get('site_id') || undefined;
+    const status = searchParams.get('status') as any;
 
-    // Get query params
-    const { searchParams } = new URL(request.url);
-    const projectId = searchParams.get('project_id');
-    const limit = parseInt(searchParams.get('limit') || '50');
-    const offset = parseInt(searchParams.get('offset') || '0');
+    const service = await createAuditsService();
+    const audits = await service.getAudits({ site_id, status });
 
-    // Build query
-    let query = supabase
-      .from('audit_jobs')
-      .select('*', { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
-
-    if (projectId) {
-      query = query.eq('site_id', projectId);
-    }
-
-    const { data: audits, error, count } = await query;
-
-    if (error) {
-      console.error('Failed to fetch audits:', error);
-      return NextResponse.json(
-        { error: 'Failed to fetch audits' },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      audits: audits || [],
-      total: count || 0,
-      offset,
-      limit,
-    });
+    return NextResponse.json({ audits });
   } catch (error) {
-    console.error('GET /api/audits error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleAPIError(error);
   }
 }
 
 /**
  * POST /api/audits
- * Trigger a new audit job
+ * ponytail: Zod validation + service layer + N8N webhook
  */
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClient();
+    await requireAuth();
 
-    // Check authentication
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    // Parse request body
     const body = await request.json();
-    const { site_id, audit_type = 'full' } = body;
 
-    if (!site_id) {
-      return NextResponse.json(
-        { error: 'site_id is required' },
-        { status: 400 }
-      );
+    // ponytail: Import validation at top when Zod is stable
+    const { createAuditSchema } = await import('@/lib/validations/audit.schema');
+    const validated = createAuditSchema.parse(body);
+
+    const service = await createAuditsService();
+    const audit = await service.createAudit(validated);
+
+    // ponytail: N8N webhook trigger (optional - doesn't fail request)
+    const webhookUrl = process.env.N8N_WEBHOOK_URL;
+    if (webhookUrl) {
+      fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Webhook-Secret': process.env.N8N_WEBHOOK_SECRET || '',
+        },
+        body: JSON.stringify({
+          audit_id: audit.id,
+          site_id: validated.site_id,
+          type: validated.type,
+        }),
+      }).catch(err => console.warn('N8N webhook failed:', err));
     }
 
-    // Verify project exists
-    const { data: project, error: projectError } = await supabase
-      .from('sites')
-      .select('id, url')
-      .eq('id', site_id)
-      .single();
-
-    if (projectError || !project) {
-      return NextResponse.json(
-        { error: 'Project not found' },
-        { status: 404 }
-      );
-    }
-
-    // Create audit job
-    const { data: audit, error: createError } = await supabase
-      .from('audit_jobs')
-      .insert({
-        site_id,
-        status: 'pending',
-        audit_type,
-        started_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
-
-    if (createError || !audit) {
-      console.error('Failed to create audit:', createError);
-      return NextResponse.json(
-        { error: 'Failed to create audit' },
-        { status: 500 }
-      );
-    }
-
-    // Trigger N8N workflow
-    const n8nWebhookUrl = process.env.N8N_WEBHOOK_URL;
-    if (n8nWebhookUrl) {
-      try {
-        await fetch(n8nWebhookUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Webhook-Secret': process.env.N8N_WEBHOOK_SECRET || '',
-          },
-          body: JSON.stringify({
-            audit_id: audit.id,
-            site_id,
-            url: project.url,
-            audit_type,
-          }),
-        });
-        console.log(`N8N webhook triggered for audit ${audit.id}`);
-      } catch (webhookError) {
-        console.error('Failed to trigger N8N webhook:', webhookError);
-        // Don't fail the request if webhook fails
-      }
-    } else {
-      console.log(`Audit ${audit.id} created (N8N webhook not configured)`);
-    }
-
-    return NextResponse.json({
-      success: true,
-      audit,
-      message: 'Audit job created successfully',
-    });
+    return NextResponse.json({ audit }, { status: 201 });
   } catch (error) {
-    console.error('POST /api/audits error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return handleAPIError(error);
   }
 }
